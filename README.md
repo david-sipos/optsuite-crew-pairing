@@ -1,0 +1,1 @@
+This repository contains an integration of the crew pairing problem into the VQAOpt project.

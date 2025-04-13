@@ -1,0 +1,10 @@
+.venv
+.vscode
+.ipynb_checkpoints
+__pycache__
+.env
+**/*.egg-info
+**/build/
+decorator_job_*
+results-wrapper-*
+**/dist/

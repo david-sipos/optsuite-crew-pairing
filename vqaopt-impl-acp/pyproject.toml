@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vqaopt-impl-acp"
+version = "0.0.1"
+authors = [
+  {name="Dávid Sipos"},
+  {name="András Czégel"},
+  {name="Boglárka G.-Tóth"},
+]
+description = "A package introducing the Crew Pairing Problem to VQAOpt"
+readme = "README.md"
+requires-python = ">= 3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
+
+dependencies = [
+    "sortedcontainers~=2.4.0",
+    "numpy~=2.2.0",
+    "vqaopt~=0.0.1",
+]
+
+[project.optional-dependencies]
+DEV = ["pylint", "mypy"]
+
+[project.entry-points."vqaopt.plugins"]
+vqaopt_impl_acp = "vqaopt.impl.acp"
+
+[project.entry-points."vqaopt.reductions"]
+vqaopt_impl_acp = "vqaopt.impl.acp.reduction"
