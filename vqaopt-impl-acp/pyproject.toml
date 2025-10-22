@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vqaopt-impl-acp"
-version = "0.0.1"
+version = "0.0.2"
 authors = [
   {name="Dávid Sipos"},
   {name="András Czégel"},
@@ -21,7 +21,7 @@ classifiers = [
 dependencies = [
     "sortedcontainers~=2.4.0",
     "numpy~=2.2.0",
-    "vqaopt~=0.0.1",
+    "vqaopt==0.0.2",
 ]
 
 [project.optional-dependencies]

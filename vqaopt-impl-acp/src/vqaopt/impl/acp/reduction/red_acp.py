@@ -18,7 +18,9 @@ class ACP2MCEC(Reduction):
     source = ACPProblem
     target = MCECProblem
 
-    def reduce(self, problem_instance: ACPProblem) -> MCECProblem:
+    def reduce(
+        self, problem_instance: ACPProblem, options: dict | None = None
+    ) -> MCECProblem:
         assert isinstance(problem_instance, ACPProblem)
         pairing_contains_leg = np.zeros(
             (len(problem_instance.pairings), len(problem_instance.legs)),

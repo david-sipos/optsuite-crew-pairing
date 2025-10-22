@@ -6,45 +6,44 @@ from datetime import datetime, timedelta
 from functools import reduce
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+import scienceplots
 from matplotlib import patches
 
-from vqaopt.core.plugin import Ansatz, Field, Optimizer, ResProc
-from vqaopt.core.plugin.platform import VQAResult
+from vqaopt.core.plugin import Field, ResProc
+from vqaopt.core.problem import Problem
+from vqaopt.impl.problems import IsingProblem
+from vqaopt.impl.utils.folder import get_folders
 
 from ..acp_problem import ACPProblem
-
-Leg = tuple[str, datetime, str, datetime]
-Pairing = list[Leg]
 
 
 class ResAcpPairings(ResProc):
     """Visualize the solution on the graph."""
 
-    figsize: tuple = Field(
-        default=(20, 8),
-        title="Figure size",
+    width: float = Field(default=6, title="Width")
+    scale: float = Field(
+        default=0.5,
+        title="Scale",
     )
-    format: typing.Literal["png", "pdf"] = Field(
-        default="pdf",
-        title="Format",
+    aspect: float = Field(
+        default=0.5,
+        title="Aspect",
     )
+    style: list[str] = Field(default_factory=list, title="Scienceplots style")
+    rc_params: dict = Field(default_factory=dict, title="MPL rc params")
     file_name: str = Field(
         default="pairings",
         title="File name",
     )
-    date_label_size: int = Field(
-        default=18,
-        title="Date label size",
+    to_plot: typing.Literal["all", "most-likely", "best"] = Field(
+        default="most-likely", title="Pairings to visualize"
     )
-    axis_label_size: int = Field(
-        default=20,
-        title="Axis label size",
-    )
-    tick_label_size: int = Field(
-        default=18,
-        title="Tick label size",
+    format: typing.Literal["png", "pdf", "pgf"] = Field(
+        default="pdf",
+        title="Format",
     )
 
     @classmethod
@@ -53,43 +52,31 @@ class ResAcpPairings(ResProc):
 
     def after_problem(
         self,
-        runtime: float,
-        problem: ACPProblem,
-        ansatz: Ansatz,
-        optimizer: Optimizer,
-        data: VQAResult,
-        out_folder: Path | None,
-    ) -> list[Pairing] | None:
+        problem: Problem,
+        run_info: dict,
+        experiment_config,
+        result: dict,
+        experiment_folder: Path | None,
+    ) -> tuple[dict[str, typing.Any], list[dict[str, typing.Any]]] | None:
         if ACPProblem.get_name() not in problem.forms:
             return None
+        if "final_counts" not in result:
+            return None
+
         problem = problem.forms[ACPProblem.get_name()]
+        ising = problem.forms[IsingProblem.get_name()]
+        run_indices: dict[str, typing.Any] = run_info.get("run_indices", {})
 
-        most_likely_bitstring = max(
-            data.final_counts, key=lambda k: data.final_counts[k]
-        )
-
-        pairings: list[Pairing] = []
-        for pairing in problem.pairings_from_bitstring(most_likely_bitstring):
-            pairings.append([])
-            for duty in pairing.duties:
-                for leg1, leg2 in itertools.pairwise(duty.legs):
-                    pairings[-1].append(
-                        (
-                            leg1.departure_airport,
-                            leg1.departure_datetime,
-                            leg1.arrival_airport,
-                            leg1.arrival_datetime,
-                        )
-                    )
-                    pairings[-1].append(
-                        (
-                            leg2.departure_airport,
-                            leg2.departure_datetime,
-                            leg2.arrival_airport,
-                            leg2.arrival_datetime,
-                        )
-                    )
-        return pairings
+        return run_indices, [
+            {
+                "bitstring": k,
+                "count": v,
+                "cost": problem.cost_of_bitstring(k),
+                "ising_cost": ising.cost_of_bitstring(k),
+                "pairings": list(problem.pairings_from_bitstring(k)),
+            }
+            for k, v in result["final_counts"].items()
+        ]
 
     def _setup_figure(
         self,
@@ -98,10 +85,7 @@ class ResAcpPairings(ResProc):
         first_dt: datetime,
     ) -> None:
         for idx, ax in enumerate(fig.get_axes()):
-            ax.set_title(
-                str(first_dt.date() + timedelta(days=idx)), size=self.date_label_size
-            )
-            ax.tick_params(labelsize=self.tick_label_size)
+            ax.set_title(str(first_dt.date() + timedelta(days=idx)))
             ax.set_xticks(range(0, 24 * 60 + 1, 60))
             ax.set_xticklabels([f"{h:02d}:00" for h in range(0, 25)], rotation=45)
             ax.set_yticks(range(len(airport_to_idx)))
@@ -120,8 +104,8 @@ class ResAcpPairings(ResProc):
                     linestyle="--",
                 )
 
-        fig.supylabel("Airport", size=self.axis_label_size)
-        fig.supxlabel("Time", size=self.axis_label_size)
+        fig.supylabel("Airport")
+        fig.supxlabel("Time")
         plt.tight_layout()
 
     def _airport_to_value(
@@ -136,14 +120,27 @@ class ResAcpPairings(ResProc):
     def plot(
         self, pairings: list[list[tuple[str, datetime, str, datetime]]]
     ) -> plt.Figure:
+        height = self.width / self.aspect
+
+        def red(
+            acc: tuple[datetime, datetime], elem: tuple[str, datetime, str, datetime]
+        ):
+            first_dt, last_dt = acc
+            _, arr_dt, _, dep_dt = elem
+            return (min(first_dt, arr_dt), max(last_dt, dep_dt))
+
         first_dt, last_dt = reduce(
-            lambda x, y: (min(x[0], y[1]), max(x[1], y[3])),
+            red,
             (leg for legs in pairings for leg in legs),
             (datetime.max, datetime.min),
         )
         number_of_days = (last_dt.date() - first_dt.date()).days + 1
 
-        fig, _ = plt.subplots(ncols=number_of_days, figsize=self.figsize, sharey=True)
+        fig, _ = plt.subplots(
+            ncols=number_of_days,
+            figsize=(height * self.scale, self.width * self.scale),
+            sharey=True,
+        )
         axs = fig.get_axes()
 
         colors = plt.cm.get_cmap("hsv")(np.linspace(0, 1, len(pairings) + 1))
@@ -247,13 +244,55 @@ class ResAcpPairings(ResProc):
 
     def after_experiment(
         self,
-        pairings_list: list[list[Pairing]],
-        out_folder: Path | None,
+        aggr: list[tuple[dict[str, typing.Any], list[dict[str, typing.Any]]]],
+        experiment_folder: Path | None,
     ) -> typing.Any:
-        for i, pairings in enumerate(pairings_list):
-            fig = self.plot(pairings)
-            if out_folder is not None:
-                fig.savefig(out_folder / f"{self.file_name}_{i}.{self.format}")
-            else:
-                fig.savefig(f"{self.file_name}_{i}.{self.format}")
-            plt.close(fig)
+
+        with plt.style.context(self.style):
+            with mpl.rc_context(self.rc_params):
+                for i, (run_indices, results) in enumerate(aggr):
+                    match self.to_plot:
+                        case "best":
+                            results = [min(results, key=lambda d: d["ising_cost"])]
+                        case "most-likely":
+                            results = [max(results, key=lambda d: d["count"])]
+
+                    for result in results:
+                        if int(result["bitstring"], 2) == 0:
+                            continue
+
+                        plot_data: list[list[tuple[str, datetime, str, datetime]]] = []
+                        pairings = result["pairings"]
+                        for pairing in pairings:
+                            plot_data.append([])
+                            for leg1, leg2 in itertools.pairwise(pairing.legs_iterator):
+                                plot_data[-1].append(
+                                    (
+                                        leg1.departure_airport,
+                                        leg1.departure_datetime,
+                                        leg1.arrival_airport,
+                                        leg1.arrival_datetime,
+                                    )
+                                )
+                                plot_data[-1].append(
+                                    (
+                                        leg2.departure_airport,
+                                        leg2.departure_datetime,
+                                        leg2.arrival_airport,
+                                        leg2.arrival_datetime,
+                                    )
+                                )
+                        fig = self.plot(plot_data)
+
+                        _, _, repetition_folder = get_folders(
+                            experiment_folder or Path.cwd(),
+                            **run_indices,
+                        )
+                        repetition_folder.mkdir(parents=True, exist_ok=True)
+
+                        fig.savefig(
+                            repetition_folder
+                            / f"{self.file_name}_{i}_{int(result["bitstring"],2)}.{self.format}"
+                        )
+
+                        plt.close(fig)
